@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OPP Forex Calculator</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .container { max-width: 800px; margin: auto; }
+    .section { margin-bottom: 30px; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
+    input, button { margin: 5px; padding: 8px; }
+    .result { background: #f9f9f9; padding: 10px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    function App() {
+      const [token, setToken] = useState(localStorage.getItem('token') || '');
+      const [username, setUsername] = useState('');
+      const [password, setPassword] = useState('');
+      const [rate, setRate] = useState(null);
+      const [feeResult, setFeeResult] = useState(null);
+      const [exchangeResult, setExchangeResult] = useState(null);
+      const [kycResult, setKycResult] = useState(null);
+
+      const login = async () => {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (data.token) {
+          setToken(data.token);
+          localStorage.setItem('token', data.token);
+        } else {
+          alert(data.error);
+        }
+      };
+
+      const register = async () => {
+        const res = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        alert(data.message || data.error);
+      };
+
+      const [volatility, setVolatility] = useState(null);
+
+      const fetchRate = async () => {
+        const res = await fetch('/api/rate/USD/EUR', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        setRate(data.rate);
+      };
+
+      const calculateVolatility = async () => {
+        const prices = [1.0, 1.001, 0.998, 1.010, 1.005]; // sample
+        const vol = calculateVolatility(prices);
+        setVolatility(vol);
+        const alert = checkVolatilityAlert(vol);
+        if (alert.alert) {
+          await sendNotification('Volatility Alert', alert.message);
+        }
+      };
+
+      const sendNotification = async (title, body) => {
+        const res = await fetch('/api/send-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ title, body })
+        });
+        const data = await res.json();
+        console.log(data.message);
+      };
+
+      const subscribeToNotifications = async () => {
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+          const registration = await navigator.serviceWorker.register('/sw.js');
+          const response = await fetch('/api/vapid-public-key');
+          const { publicKey } = await response.json();
+          const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey)
+          });
+          await fetch('/api/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ subscription })
+          });
+          alert('Subscribed to notifications');
+        }
+      };
+
+      function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+          outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+      }
+
+      const calculateFee = async () => {
+        const res = await fetch('/api/calculate-fee', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ amount: 1000, midRate: 0.92, offeredRate: 0.90, fixedFee: 5 })
+        });
+        const data = await res.json();
+        setFeeResult(data);
+      };
+
+      const simulateExchange = async () => {
+        const res = await fetch('/api/simulate-exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ amount: 1000, fromCurrency: 'USD', toCurrency: 'EUR' })
+        });
+        const data = await res.json();
+        setExchangeResult(data);
+      };
+
+      const performKYC = async () => {
+        const res = await fetch('/api/kyc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ country: 'US', amount: 5000, isPEP: false })
+        });
+        const data = await res.json();
+        setKycResult(data);
+      };
+
+      if (!token) {
+        return (
+          <div className="container">
+            <h1>Login to OPP Forex Calculator</h1>
+            <input placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
+            <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
+            <button onClick={login}>Login</button>
+            <button onClick={register}>Register</button>
+          </div>
+        );
+      }
+
+      return (
+        <div className="container">
+          <h1>OPP Forex Calculator</h1>
+          <button onClick={() => { setToken(''); localStorage.removeItem('token'); }}>Logout</button>
+
+          <div className="section">
+            <h2>Get Mid-Market Rate</h2>
+            <button onClick={fetchRate}>Fetch USD/EUR Rate</button>
+            {rate && <div className="result">Rate: {rate}</div>}
+          </div>
+
+          <div className="section">
+            <h2>Volatility Check</h2>
+            <button onClick={calculateVolatility}>Check Volatility</button>
+            {volatility && (
+              <div className="result">
+                <pre>{JSON.stringify(volatility, null, 2)}</pre>
+              </div>
+            )}
+          </div>
+
+          <div className="section">
+            <h2>Notifications</h2>
+            <button onClick={subscribeToNotifications}>Subscribe to Push Notifications</button>
+          </div>
+
+          <div className="section">
+            <h2>Fee Transparency</h2>
+            <button onClick={calculateFee}>Calculate Fee</button>
+            {feeResult && (
+              <div className="result">
+                <p>{feeResult.report.summary}</p>
+                <pre>{JSON.stringify(feeResult.result, null, 2)}</pre>
+              </div>
+            )}
+          </div>
+
+          <div className="section">
+            <h2>Simulate Exchange</h2>
+            <button onClick={simulateExchange}>Simulate $1000 USD to EUR</button>
+            {exchangeResult && (
+              <div className="result">
+                <pre>{JSON.stringify(exchangeResult, null, 2)}</pre>
+              </div>
+            )}
+          </div>
+
+          <div className="section">
+            <h2>KYC Check</h2>
+            <button onClick={performKYC}>Perform KYC</button>
+            {kycResult && (
+              <div className="result">
+                <pre>{JSON.stringify(kycResult, null, 2)}</pre>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
