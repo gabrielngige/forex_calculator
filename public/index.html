@@ -7,210 +7,221 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .container { max-width: 800px; margin: auto; }
-    .section { margin-bottom: 30px; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
-    input, button { margin: 5px; padding: 8px; }
-    .result { background: #f9f9f9; padding: 10px; margin-top: 10px; }
+    .chart-container {
+      position: relative;
+      width: 100%;
+      height: 250px;
+      background: linear-gradient(180deg, rgba(34, 197, 94, 0.1) 0%, rgba(34, 197, 94, 0) 100%);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .chart-line {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      fill: url(#gradient);
+    }
   </style>
 </head>
-<body>
+<body class="bg-gray-900 text-white">
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState } = React;
+    const { useState, useEffect } = React;
 
     function App() {
-      const [token, setToken] = useState(localStorage.getItem('token') || '');
-      const [username, setUsername] = useState('');
-      const [password, setPassword] = useState('');
-      const [rate, setRate] = useState(null);
-      const [feeResult, setFeeResult] = useState(null);
-      const [exchangeResult, setExchangeResult] = useState(null);
-      const [kycResult, setKycResult] = useState(null);
+      const [fromCurrency, setFromCurrency] = useState('USD');
+      const [toCurrency, setToCurrency] = useState('KES');
+      const [fromAmount, setFromAmount] = useState('1');
+      const [toAmount, setToAmount] = useState('129.47');
+      const [rate, setRate] = useState(129.47);
+      const [timeframe, setTimeframe] = useState('1M');
+      const [lastUpdated, setLastUpdated] = useState(new Date().toLocaleString());
 
-      const login = async () => {
-        const res = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (data.token) {
-          setToken(data.token);
-          localStorage.setItem('token', data.token);
-        } else {
-          alert(data.error);
-        }
-      };
+      const currencies = ['USD', 'EUR', 'KES', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD'];
 
-      const register = async () => {
-        const res = await fetch('/api/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        alert(data.message || data.error);
-      };
-
-      const [volatility, setVolatility] = useState(null);
-
-      const fetchRate = async () => {
-        const res = await fetch('/api/rate/USD/EUR', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await res.json();
-        setRate(data.rate);
-      };
-
-      const calculateVolatility = async () => {
-        const prices = [1.0, 1.001, 0.998, 1.010, 1.005]; // sample
-        const vol = calculateVolatility(prices);
-        setVolatility(vol);
-        const alert = checkVolatilityAlert(vol);
-        if (alert.alert) {
-          await sendNotification('Volatility Alert', alert.message);
-        }
-      };
-
-      const sendNotification = async (title, body) => {
-        const res = await fetch('/api/send-notification', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ title, body })
-        });
-        const data = await res.json();
-        console.log(data.message);
-      };
-
-      const subscribeToNotifications = async () => {
-        if ('serviceWorker' in navigator && 'PushManager' in window) {
-          const registration = await navigator.serviceWorker.register('/sw.js');
-          const response = await fetch('/api/vapid-public-key');
-          const { publicKey } = await response.json();
-          const subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(publicKey)
+      // Generate mock chart data
+      const generateChartData = () => {
+        const data = [];
+        const baseRate = 120;
+        for (let i = 0; i < 50; i++) {
+          data.push({
+            x: (i / 50) * 100,
+            y: baseRate + (Math.sin(i / 5) * 8) + (Math.random() * 3)
           });
-          await fetch('/api/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ subscription })
-          });
-          alert('Subscribed to notifications');
         }
+        return data;
       };
 
-      function urlBase64ToUint8Array(base64String) {
-        const padding = '='.repeat((4 - base64String.length % 4) % 4);
-        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-        const rawData = window.atob(base64);
-        const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; ++i) {
-          outputArray[i] = rawData.charCodeAt(i);
-        }
-        return outputArray;
-      }
+      const chartData = generateChartData();
+      const minRate = Math.min(...chartData.map(d => d.y));
+      const maxRate = Math.max(...chartData.map(d => d.y));
+      const range = maxRate - minRate;
 
-      const calculateFee = async () => {
-        const res = await fetch('/api/calculate-fee', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ amount: 1000, midRate: 0.92, offeredRate: 0.90, fixedFee: 5 })
-        });
-        const data = await res.json();
-        setFeeResult(data);
+      const pathData = chartData
+        .map((point, idx) => {
+          const x = (point.x / 100) * 700;
+          const y = 200 - ((point.y - minRate) / range) * 150;
+          return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
+        })
+        .join(' ');
+
+      const handleFromAmountChange = (e) => {
+        const amount = e.target.value;
+        setFromAmount(amount);
+        setToAmount((parseFloat(amount) * rate).toFixed(2) || '');
       };
 
-      const simulateExchange = async () => {
-        const res = await fetch('/api/simulate-exchange', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ amount: 1000, fromCurrency: 'USD', toCurrency: 'EUR' })
-        });
-        const data = await res.json();
-        setExchangeResult(data);
+      const handleToAmountChange = (e) => {
+        const amount = e.target.value;
+        setToAmount(amount);
+        setFromAmount((parseFloat(amount) / rate).toFixed(2) || '');
       };
 
-      const performKYC = async () => {
-        const res = await fetch('/api/kyc', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ country: 'US', amount: 5000, isPEP: false })
-        });
-        const data = await res.json();
-        setKycResult(data);
+      const swapCurrencies = () => {
+        setFromCurrency(toCurrency);
+        setToCurrency(fromCurrency);
+        const temp = fromAmount;
+        setFromAmount(toAmount);
+        setToAmount(temp);
+        setRate(1 / rate);
       };
-
-      if (!token) {
-        return (
-          <div className="container">
-            <h1>Login to OPP Forex Calculator</h1>
-            <input placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
-            <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
-            <button onClick={login}>Login</button>
-            <button onClick={register}>Register</button>
-          </div>
-        );
-      }
 
       return (
-        <div className="container">
-          <h1>OPP Forex Calculator</h1>
-          <button onClick={() => { setToken(''); localStorage.removeItem('token'); }}>Logout</button>
-
-          <div className="section">
-            <h2>Get Mid-Market Rate</h2>
-            <button onClick={fetchRate}>Fetch USD/EUR Rate</button>
-            {rate && <div className="result">Rate: {rate}</div>}
-          </div>
-
-          <div className="section">
-            <h2>Volatility Check</h2>
-            <button onClick={calculateVolatility}>Check Volatility</button>
-            {volatility && (
-              <div className="result">
-                <pre>{JSON.stringify(volatility, null, 2)}</pre>
+        <div className="min-h-screen bg-gray-900 p-6 flex items-center justify-center">
+          <div className="w-full max-w-2xl">
+            {/* Header with share button */}
+            <div className="flex justify-between items-start mb-8">
+              <div>
+                <p className="text-gray-400 text-sm mb-2">1 {fromCurrency} equals</p>
+                <h1 className="text-5xl md:text-6xl font-bold mb-4">
+                  {toAmount} <span className="text-3xl md:text-4xl">{toCurrency}</span>
+                </h1>
               </div>
-            )}
-          </div>
+              <button className="w-12 h-12 rounded-full border-2 border-gray-600 flex items-center justify-center hover:border-gray-400 transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </button>
+            </div>
 
-          <div className="section">
-            <h2>Notifications</h2>
-            <button onClick={subscribeToNotifications}>Subscribe to Push Notifications</button>
-          </div>
+            {/* Timestamp and source */}
+            <p className="text-gray-500 text-sm mb-6">28 Mar, 19:16 UTC · From Morningstar · Disclaimer</p>
 
-          <div className="section">
-            <h2>Fee Transparency</h2>
-            <button onClick={calculateFee}>Calculate Fee</button>
-            {feeResult && (
-              <div className="result">
-                <p>{feeResult.report.summary}</p>
-                <pre>{JSON.stringify(feeResult.result, null, 2)}</pre>
+            {/* Timeframe selector */}
+            <div className="flex gap-3 mb-8 overflow-x-auto pb-2">
+              {['1D', '5D', '1M', '1Y', '5Y', 'Max'].map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => setTimeframe(tf)}
+                  className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all whitespace-nowrap ${
+                    timeframe === tf
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+
+            {/* Chart */}
+            <div className="chart-container mb-8 border border-gray-700 rounded-lg p-4">
+              <svg width="100%" height="100%" viewBox="0 0 700 200" preserveAspectRatio="xMidYMid meet">
+                <defs>
+                  <linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style={{ stopColor: '#22c55e', stopOpacity: 0.4 }} />
+                    <stop offset="100%" style={{ stopColor: '#22c55e', stopOpacity: 0 }} />
+                  </linearGradient>
+                </defs>
+                {/* Grid lines */}
+                {[130, 129, 128, 127].map((val, idx) => (
+                  <g key={idx}>
+                    <line x1="0" y1={30 + idx * 40} x2="700" y2={30 + idx * 40} stroke="#374151" strokeWidth="1" />
+                    <text x="15" y={35 + idx * 40} fill="#9ca3af" fontSize="12">{val}</text>
+                  </g>
+                ))}
+                {/* Chart line with fill */}
+                <path d={pathData} fill="url(#gradient)" stroke="#22c55e" strokeWidth="2" />
+                {/* Highlighted point */}
+                {chartData[chartData.length - 1] && (
+                  <>
+                    <circle
+                      cx={(chartData[chartData.length - 1].x / 100) * 700}
+                      cy={200 - ((chartData[chartData.length - 1].y - minRate) / range) * 150}
+                      r="6"
+                      fill="#22c55e"
+                    />
+                  </>
+                )}
+              </svg>
+            </div>
+
+            {/* Date labels */}
+            <div className="flex justify-between text-gray-500 text-xs mb-8 px-4">
+              <span>6 Mar</span>
+              <span>14 Mar</span>
+              <span>23 Mar</span>
+            </div>
+
+            {/* Input fields */}
+            <div className="space-y-3">
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 flex items-center gap-3">
+                <input
+                  type="number"
+                  value={fromAmount}
+                  onChange={handleFromAmountChange}
+                  className="bg-transparent text-2xl font-semibold w-32 outline-none"
+                />
+                <select
+                  value={fromCurrency}
+                  onChange={(e) => setFromCurrency(e.target.value)}
+                  className="bg-transparent text-gray-300 cursor-pointer outline-none ml-auto"
+                >
+                  {currencies.map((curr) => (
+                    <option key={curr} value={curr} className="bg-gray-900">
+                      {curr}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
-          </div>
 
-          <div className="section">
-            <h2>Simulate Exchange</h2>
-            <button onClick={simulateExchange}>Simulate $1000 USD to EUR</button>
-            {exchangeResult && (
-              <div className="result">
-                <pre>{JSON.stringify(exchangeResult, null, 2)}</pre>
-              </div>
-            )}
-          </div>
+              <button
+                onClick={swapCurrencies}
+                className="w-full py-2 text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                ⇅ Swap
+              </button>
 
-          <div className="section">
-            <h2>KYC Check</h2>
-            <button onClick={performKYC}>Perform KYC</button>
-            {kycResult && (
-              <div className="result">
-                <pre>{JSON.stringify(kycResult, null, 2)}</pre>
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 flex items-center gap-3">
+                <input
+                  type="number"
+                  value={toAmount}
+                  onChange={handleToAmountChange}
+                  className="bg-transparent text-2xl font-semibold w-32 outline-none"
+                />
+                <select
+                  value={toCurrency}
+                  onChange={(e) => setToCurrency(e.target.value)}
+                  className="bg-transparent text-gray-300 cursor-pointer outline-none ml-auto"
+                >
+                  {currencies.map((curr) => (
+                    <option key={curr} value={curr} className="bg-gray-900">
+                      {curr}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
+            </div>
+
+            {/* Info footer */}
+            <p className="text-gray-500 text-xs mt-8 text-center">
+              Real-time rates by <span className="text-gray-400">OPP Forex Calculator</span>
+            </p>
           </div>
         </div>
       );
